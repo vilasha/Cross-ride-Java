@@ -1,0 +1,739 @@
+From b87a917e482362da092df052439fa4956dbe8368 Mon Sep 17 00:00:00 2001
+From: vilasha <mariavya@gmail.com>
+Date: Fri, 14 Sep 2018 00:18:10 +0100
+Subject: [PATCH] My submission
+XOV: XO_0_0_1
+
+---
+ .gitignore                                    |   2 +
+ gradlew                                       |   0
+ .../controller/PersonController.java          |   2 +-
+ .../techtrial/controller/RideController.java  |  38 +++-
+ .../com/crossover/techtrial/model/Person.java |   9 +-
+ .../com/crossover/techtrial/model/Ride.java   |  14 +-
+ .../techtrial/service/RideService.java        |   9 +-
+ .../techtrial/service/RideServiceImpl.java    |  98 +++++++++-
+ src/main/resources/application.properties     |   2 +-
+ .../controller/TestRideController.java        |  97 ++++++++++
+ .../TestGlobalExceptionHandler.java           |  26 +++
+ .../crossover/techtrial/model/TestRide.java   |  45 +++++
+ .../service/TestRideServiceImpl.java          | 182 ++++++++++++++++++
+ 13 files changed, 503 insertions(+), 21 deletions(-)
+ mode change 100755 => 100644 gradlew
+ create mode 100644 src/test/java/com/crossover/techtrial/controller/TestRideController.java
+ create mode 100644 src/test/java/com/crossover/techtrial/exceptions/TestGlobalExceptionHandler.java
+ create mode 100644 src/test/java/com/crossover/techtrial/model/TestRide.java
+ create mode 100644 src/test/java/com/crossover/techtrial/service/TestRideServiceImpl.java
+
+diff --git a/.gitignore b/.gitignore
+index 38e8d91..50de95f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -7,3 +7,5 @@ build/*
+ target/*
+ **/.DS_Store
+ **/.settings
++/.gradle/
++/bin/
+diff --git a/gradlew b/gradlew
+old mode 100755
+new mode 100644
+diff --git a/src/main/java/com/crossover/techtrial/controller/PersonController.java b/src/main/java/com/crossover/techtrial/controller/PersonController.java
+index ded9199..b588af2 100644
+--- a/src/main/java/com/crossover/techtrial/controller/PersonController.java
++++ b/src/main/java/com/crossover/techtrial/controller/PersonController.java
+@@ -35,7 +35,7 @@ public class PersonController {
+     return ResponseEntity.ok(personService.getAll());
+   }
+   
+-  @GetMapping(path = "/api/person/{perso-id}")
++  @GetMapping(path = "/api/person/{person-id}")
+   public ResponseEntity<Person> getPersonById(@PathVariable(name="person-id", required=true)Long personId) {
+     Person person = personService.findById(personId);
+     if (person != null) {
+diff --git a/src/main/java/com/crossover/techtrial/controller/RideController.java b/src/main/java/com/crossover/techtrial/controller/RideController.java
+index baea0d8..608f894 100644
+--- a/src/main/java/com/crossover/techtrial/controller/RideController.java
++++ b/src/main/java/com/crossover/techtrial/controller/RideController.java
+@@ -3,8 +3,9 @@
+  */
+ package com.crossover.techtrial.controller;
+ 
++import java.text.SimpleDateFormat;
+ import java.time.LocalDateTime;
+-import java.util.ArrayList;
++import java.util.Date;
+ import java.util.List;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.format.annotation.DateTimeFormat;
+@@ -16,7 +17,9 @@ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestParam;
+ import org.springframework.web.bind.annotation.RestController;
+ import com.crossover.techtrial.dto.TopDriverDTO;
++import com.crossover.techtrial.exceptions.GlobalExceptionHandler;
+ import com.crossover.techtrial.model.Ride;
++import com.crossover.techtrial.service.PersonService;
+ import com.crossover.techtrial.service.RideService;
+ 
+ /**
+@@ -30,8 +33,35 @@ public class RideController {
+   @Autowired
+   RideService rideService;
+ 
++  @Autowired
++  PersonService personService;
++
++  @Autowired
++  GlobalExceptionHandler exceptionHandler;
++
+   @PostMapping(path ="/api/ride")
+   public ResponseEntity<Ride> createNewRide(@RequestBody Ride ride) {
++	  Long driver_id = ride.getDriver().getId();
++	    Long rider_id = ride.getRider().getId();
++	    if (personService.findById(driver_id) == null
++	            || personService.findById(rider_id) == null) {
++		      exceptionHandler.handle(
++		              new Exception("Cross-Ride should only accept the data from registered drivers and riders only"));
++		      return null;
++	    }
++	    SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
++	    try {
++	      Date startTime = formatter.parse(ride.getStartTime());
++	      Date endTime = formatter.parse(ride.getEndTime());
++	      if (startTime.compareTo(endTime) >= 0) {
++		        exceptionHandler.handle(
++		                new Exception("Not allowed to add a ride with end time less than or equal to start time"));
++		        return null;
++	      }
++	    } catch (Exception ex) {
++	      exceptionHandler.handle(ex);
++	      return null;
++	    }
+     return ResponseEntity.ok(rideService.save(ride));
+   }
+   
+@@ -56,12 +86,8 @@ public class RideController {
+       @RequestParam(value="max", defaultValue="5") Long count,
+       @RequestParam(value="startTime", required=true) @DateTimeFormat(pattern="yyyy-MM-dd'T'HH:mm:ss") LocalDateTime startTime,
+       @RequestParam(value="endTime", required=true) @DateTimeFormat(pattern="yyyy-MM-dd'T'HH:mm:ss") LocalDateTime endTime){
+-    List<TopDriverDTO> topDrivers = new ArrayList<TopDriverDTO>();
+-    /**
+-     * Your Implementation Here. And Fill up topDrivers Arraylist with Top
+-     * 
+-     */
+     
++	List<TopDriverDTO> topDrivers = rideService.getTopDrivers(count, startTime, endTime);
+     return ResponseEntity.ok(topDrivers);
+     
+   }
+diff --git a/src/main/java/com/crossover/techtrial/model/Person.java b/src/main/java/com/crossover/techtrial/model/Person.java
+index 04d44f3..1875f76 100644
+--- a/src/main/java/com/crossover/techtrial/model/Person.java
++++ b/src/main/java/com/crossover/techtrial/model/Person.java
+@@ -28,18 +28,19 @@ public class Person implements Serializable{
+  
+   @Id
+   @GeneratedValue(strategy = GenerationType.IDENTITY)
+-  Long id;
++  private Long id;
+ 
++  @NotNull
+   @Column(name = "name")
+-  String name;
++  private String name;
+ 
+   @NotNull
+   @Email
+   @Column(name = "email")
+-  String email;
++  private String email;
+ 
+   @Column(name = "registration_number")
+-  String registrationNumber;
++  private String registrationNumber;
+ 
+   public Long getId() {
+     return id;
+diff --git a/src/main/java/com/crossover/techtrial/model/Ride.java b/src/main/java/com/crossover/techtrial/model/Ride.java
+index 1740eea..1ec426d 100644
+--- a/src/main/java/com/crossover/techtrial/model/Ride.java
++++ b/src/main/java/com/crossover/techtrial/model/Ride.java
+@@ -22,26 +22,28 @@ public class Ride implements Serializable{
+ 
+   @Id
+   @GeneratedValue(strategy = GenerationType.IDENTITY)
+-  Long id;
++  private Long id;
+ 
+   @NotNull
+   @Column(name = "start_time")
+-  String startTime;
++  private String startTime;
+   
+   @NotNull
+   @Column(name = "end_time")
+-  String endTime;
++  private String endTime;
+   
+   @Column(name = "distance")
+-  Long distance;
++  private Long distance;
+   
++  @NotNull
+   @ManyToOne
+   @JoinColumn(name = "driver_id", referencedColumnName = "id")
+-  Person driver;
++  private Person driver;
+   
++  @NotNull
+   @ManyToOne
+   @JoinColumn(name = "rider_id", referencedColumnName = "id")
+-  Person rider;
++  private Person rider;
+ 
+   public Long getId() {
+     return id;
+diff --git a/src/main/java/com/crossover/techtrial/service/RideService.java b/src/main/java/com/crossover/techtrial/service/RideService.java
+index 4926f6b..eb9161f 100644
+--- a/src/main/java/com/crossover/techtrial/service/RideService.java
++++ b/src/main/java/com/crossover/techtrial/service/RideService.java
+@@ -3,6 +3,10 @@
+  */
+ package com.crossover.techtrial.service;
+ 
++import java.time.LocalDateTime;
++import java.util.List;
++
++import com.crossover.techtrial.dto.TopDriverDTO;
+ import com.crossover.techtrial.model.Ride;
+ 
+ /**
+@@ -16,5 +20,6 @@ public interface RideService {
+   
+   public Ride findById(Long rideId);
+   
+-
+-}
++  public List<TopDriverDTO> getTopDrivers(Long count, LocalDateTime startRide, LocalDateTime endRide);
++  
++}
+\ No newline at end of file
+diff --git a/src/main/java/com/crossover/techtrial/service/RideServiceImpl.java b/src/main/java/com/crossover/techtrial/service/RideServiceImpl.java
+index 4a647cc..a25bf06 100644
+--- a/src/main/java/com/crossover/techtrial/service/RideServiceImpl.java
++++ b/src/main/java/com/crossover/techtrial/service/RideServiceImpl.java
+@@ -3,10 +3,25 @@
+  */
+ package com.crossover.techtrial.service;
+ 
++import java.time.LocalDateTime;
++import java.time.format.DateTimeFormatter;
++import java.time.temporal.ChronoUnit;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.HashSet;
++import java.util.List;
+ import java.util.Optional;
++import java.util.Set;
++import java.util.stream.Collectors;
++import java.util.stream.StreamSupport;
++
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
++
++import com.crossover.techtrial.dto.TopDriverDTO;
++import com.crossover.techtrial.model.Person;
+ import com.crossover.techtrial.model.Ride;
++import com.crossover.techtrial.repositories.PersonRepository;
+ import com.crossover.techtrial.repositories.RideRepository;
+ 
+ /**
+@@ -18,6 +33,9 @@ public class RideServiceImpl implements RideService{
+ 
+   @Autowired
+   RideRepository rideRepository;
++
++  @Autowired
++  PersonRepository personRepository;
+   
+   public Ride save(Ride ride) {
+     return rideRepository.save(ride);
+@@ -25,9 +43,87 @@ public class RideServiceImpl implements RideService{
+   
+   public Ride findById(Long rideId) {
+     Optional<Ride> optionalRide = rideRepository.findById(rideId);
+-    if (optionalRide.isPresent()) {
++    if (optionalRide != null && optionalRide.isPresent()) {
+       return optionalRide.get();
+     }else return null;
+   }
++  
++  @Override
++  public List<TopDriverDTO> getTopDrivers(Long count, LocalDateTime startRide, LocalDateTime endRide) {
++	  
++	List<TopDriverDTO> topDrivers =  new ArrayList<>();
++	DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
++	
++	Set<Ride> rides = StreamSupport.stream(rideRepository.findAll().spliterator(), false)
++			.filter(r -> LocalDateTime.parse(r.getStartTime(), formatter).compareTo(startRide) >= 0
++			&& LocalDateTime.parse(r.getStartTime(), formatter).compareTo(endRide) <= 0
++			&& LocalDateTime.parse(r.getEndTime(), formatter).compareTo(startRide) >= 0
++			&& LocalDateTime.parse(r.getEndTime(), formatter).compareTo(endRide) <= 0)
++			.collect(Collectors.toSet());
++	Set<Person> drivers = StreamSupport.stream(personRepository.findAll().spliterator(), false)
++			.collect(Collectors.toSet());
++	
++	for (Person driver : drivers) {
++		Set<Ride> thisDriverRides = rides.stream()
++				.filter(r -> r.getDriver().getId().equals(driver.getId()))
++				.collect(Collectors.toSet());
++		if (thisDriverRides.isEmpty())
++			continue;
++		
++		Set<Ride> thisSharedRides = new HashSet<>();
++		LocalDateTime start1, start2, end1, end2;
++		
++		for (Ride ride1 : thisDriverRides)
++			for (Ride ride2 : thisDriverRides)
++				if (ride1 != ride2) {
++					
++					start1 = LocalDateTime.parse(ride1.getStartTime(), formatter);
++					end1 = LocalDateTime.parse(ride1.getEndTime(), formatter);
++					start2 = LocalDateTime.parse(ride2.getStartTime(), formatter);
++					end2 = LocalDateTime.parse(ride2.getEndTime(), formatter);
++					
++					if ((start1.isAfter(start2) && start1.isBefore(end2))
++							|| (start2.isAfter(start1) && start2.isBefore(end1))
++							|| (end1.isAfter(start2) && end1.isBefore(end2))
++							|| (end2.isAfter(start1) && end2.isBefore(end1))) {
++						thisSharedRides.add(ride1);
++						thisSharedRides.add(ride2);
++					}
++				}
++		if (thisSharedRides.isEmpty())
++			continue;
++		
++		TopDriverDTO topDriver = new TopDriverDTO();
++		topDriver.setName(driver.getName());
++		topDriver.setEmail(driver.getEmail());
++		double avgDistance = 0;
++		long totalDuration = 0, maxDuration = 0, currentDuration = 0;
++		
++		for (Ride ride : thisSharedRides) {
++			avgDistance += ride.getDistance();
++			currentDuration = ChronoUnit.SECONDS.between(
++					LocalDateTime.parse(ride.getStartTime(), formatter),
++					LocalDateTime.parse(ride.getEndTime(), formatter));
++			if (currentDuration > maxDuration)
++				maxDuration = currentDuration;
++			totalDuration += currentDuration;
++		}
++		avgDistance /= thisSharedRides.size();
++		topDriver.setAverageDistance(avgDistance);
++		topDriver.setMaxRideDurationInSecods(maxDuration);
++		topDriver.setTotalRideDurationInSeconds(totalDuration);
++		topDrivers.add(topDriver);
++	}
++	
++	topDrivers.sort(new Comparator<TopDriverDTO>() {
++		@Override
++	    public int compare(TopDriverDTO d1, TopDriverDTO d2) {
++	        return d1.getTotalRideDurationInSeconds()
++	        		.compareTo(d2.getTotalRideDurationInSeconds());
++	    }
++	});
++	
++  	return topDrivers.subList(0, Math.min(topDrivers.size(), Math.toIntExact(count)));
++  }
+ 
+ }
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index 2e14879..0281e2f 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -2,7 +2,7 @@
+ #Database connection Parameters
+ spring.datasource.url: jdbc:mysql://localhost:3306/crossride?createDatabaseIfNotExist=true&useSSL=false
+ spring.datasource.username=root
+-spring.datasource.password=
++spring.datasource.password=root
+ spring.datasource.driver-class-name=com.mysql.jdbc.Driver
+ 
+ spring.jpa.hibernate.ddl-auto=none
+diff --git a/src/test/java/com/crossover/techtrial/controller/TestRideController.java b/src/test/java/com/crossover/techtrial/controller/TestRideController.java
+new file mode 100644
+index 0000000..b8b09e0
+--- /dev/null
++++ b/src/test/java/com/crossover/techtrial/controller/TestRideController.java
+@@ -0,0 +1,97 @@
++package com.crossover.techtrial.controller;
++
++import static org.junit.Assert.assertEquals;
++import static org.mockito.Mockito.when;
++
++import java.time.LocalDateTime;
++import java.time.format.DateTimeFormatter;
++
++import org.junit.Before;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.mockito.InjectMocks;
++import org.mockito.Mock;
++import org.mockito.Mockito;
++import org.mockito.MockitoAnnotations;
++import org.mockito.junit.MockitoJUnitRunner;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++
++import com.crossover.techtrial.exceptions.GlobalExceptionHandler;
++import com.crossover.techtrial.model.Person;
++import com.crossover.techtrial.model.Ride;
++import com.crossover.techtrial.service.PersonService;
++import com.crossover.techtrial.service.RideService;
++
++@RunWith(MockitoJUnitRunner.class)
++@SpringBootTest(webEnvironment = WebEnvironment.NONE)
++public class TestRideController {
++
++	@Mock
++	private PersonService personService;
++
++	@Mock
++	private RideService rideService;
++	
++	@Mock
++	private GlobalExceptionHandler exceptionHandler;
++	
++	@InjectMocks
++	static RideController controller;
++	
++	Person mockDriver, mockRider;
++	Ride mockRide;
++	DateTimeFormatter formatter;
++
++	@Before
++	public void init() {
++		MockitoAnnotations.initMocks(this);
++		
++		formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
++
++		mockDriver = new Person();
++		mockDriver.setId(1L);
++		mockDriver.setName("John");
++		mockDriver.setEmail("john@gmail.com");
++		mockDriver.setRegistrationNumber("E246XV");
++		
++		mockRider = new Person();
++		mockRider.setId(2L);
++		mockRider.setName("Olly");
++		mockRider.setEmail("oliver@gmail.com");
++		
++		mockRide = new Ride();
++		mockRide.setId(3L);
++		mockRide.setDriver(mockDriver);
++		mockRide.setRider(mockRider);
++		mockRide.setStartTime(formatter.format(LocalDateTime.of(2018, 9, 12, 12, 0, 0)));
++		mockRide.setEndTime(formatter.format(LocalDateTime.of(2018, 9, 12, 14, 30, 0)));
++		mockRide.setDistance(50L);
++	}
++	
++	@Test
++	public void createNewRideCorrect() {
++		when(personService.findById(Mockito.any(Long.class))).thenReturn(mockDriver);
++		when(rideService.save(Mockito.any(Ride.class))).thenReturn(mockRide);
++		
++		ResponseEntity<Ride> response = controller.createNewRide(mockRide);
++		assertEquals(HttpStatus.OK, response.getStatusCode());
++	}
++	
++	@Test
++	public void createNewRideUnregisteredDriver() {
++		when(personService.findById(Mockito.any(Long.class))).thenReturn(null);
++		ResponseEntity<Ride> response = controller.createNewRide(mockRide);
++		assertEquals(null, response);
++	}
++
++	@Test
++	public void createNewRideEndTimeLessThanStartTime() {
++		when(personService.findById(Mockito.any(Long.class))).thenReturn(mockDriver);
++		mockRide.setEndTime(formatter.format(LocalDateTime.of(2018, 9, 12, 10, 30, 0)));
++		ResponseEntity<Ride> response = controller.createNewRide(mockRide);
++		assertEquals(null, response);
++	}
++}
+diff --git a/src/test/java/com/crossover/techtrial/exceptions/TestGlobalExceptionHandler.java b/src/test/java/com/crossover/techtrial/exceptions/TestGlobalExceptionHandler.java
+new file mode 100644
+index 0000000..8d7bca8
+--- /dev/null
++++ b/src/test/java/com/crossover/techtrial/exceptions/TestGlobalExceptionHandler.java
+@@ -0,0 +1,26 @@
++package com.crossover.techtrial.exceptions;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.fail;
++
++import java.util.AbstractMap;
++
++import org.junit.Test;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++
++public class TestGlobalExceptionHandler {
++	
++	@Test
++	public void testException() {
++		GlobalExceptionHandler handler = new GlobalExceptionHandler();
++		try {
++			ResponseEntity<AbstractMap.SimpleEntry<String, String>> response =
++					handler.handle(new NullPointerException("Test exception"));
++			assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
++		} catch(Exception ex) {
++			fail("Didn't catch the exception");
++		}
++	}
++
++}
+diff --git a/src/test/java/com/crossover/techtrial/model/TestRide.java b/src/test/java/com/crossover/techtrial/model/TestRide.java
+new file mode 100644
+index 0000000..d0c9e8e
+--- /dev/null
++++ b/src/test/java/com/crossover/techtrial/model/TestRide.java
+@@ -0,0 +1,45 @@
++package com.crossover.techtrial.model;
++
++import static org.junit.Assert.assertEquals;
++
++import java.util.Random;
++
++import org.junit.BeforeClass;
++import org.junit.Test;
++
++public class TestRide {
++    public static Ride ride;
++    public static Person person;
++
++    @BeforeClass
++    public static void init(){
++        ride = new Ride();
++        person = new Person();
++    }
++
++    @Test
++    public void testGetId(){
++        Long id = new Random().nextLong();
++        ride.setId(id);
++        assertEquals(ride.getId(), id);
++    }
++
++    @Test
++    public void testDistance(){
++        Long distance = new Random().nextLong();
++        ride.setDistance(distance);
++        assertEquals(ride.getDistance(), distance);
++    }
++
++    @Test
++    public void testDriver(){
++        ride.setDriver(person);
++        assertEquals(ride.getDriver(), person);
++    }
++
++    @Test
++    public void testRider(){
++        ride.setRider(person);
++        assertEquals(ride.getRider(), person);
++    }
++}
+diff --git a/src/test/java/com/crossover/techtrial/service/TestRideServiceImpl.java b/src/test/java/com/crossover/techtrial/service/TestRideServiceImpl.java
+new file mode 100644
+index 0000000..d1edd53
+--- /dev/null
++++ b/src/test/java/com/crossover/techtrial/service/TestRideServiceImpl.java
+@@ -0,0 +1,182 @@
++package com.crossover.techtrial.service;
++
++import static org.junit.Assert.*;
++import static org.mockito.Mockito.when;
++
++import java.time.LocalDateTime;
++import java.time.format.DateTimeFormatter;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Optional;
++import java.util.Random;
++
++import org.junit.Before;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.mockito.InjectMocks;
++import org.mockito.Mock;
++import org.mockito.Mockito;
++import org.mockito.MockitoAnnotations;
++import org.mockito.junit.MockitoJUnitRunner;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
++
++import com.crossover.techtrial.dto.TopDriverDTO;
++import com.crossover.techtrial.model.Person;
++import com.crossover.techtrial.model.Ride;
++import com.crossover.techtrial.repositories.PersonRepository;
++import com.crossover.techtrial.repositories.RideRepository;
++
++@RunWith(MockitoJUnitRunner.class)
++@SpringBootTest(webEnvironment = WebEnvironment.NONE)
++public class TestRideServiceImpl {
++	
++	@Mock
++	private RideRepository mockRepoRide;
++	
++	@Mock
++	private PersonRepository mockRepoPerson;
++	
++	@InjectMocks
++	static RideServiceImpl service;
++	
++	Person mockDriver, mockRider;
++	Ride mockRide;
++	DateTimeFormatter formatter;
++	
++	@Before
++	public void init() {
++		
++		MockitoAnnotations.initMocks(this);
++
++		formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
++		
++		mockDriver = new Person();
++		mockDriver.setId(1L);
++		mockDriver.setName("John");
++		mockDriver.setEmail("john@gmail.com");
++		mockDriver.setRegistrationNumber("E246XV");
++		
++		mockRider = new Person();
++		mockRider.setId(2L);
++		mockRider.setName("Olly");
++		mockRider.setEmail("oliver@gmail.com");
++		
++		mockRide = new Ride();
++		mockRide.setId(3L);
++		mockRide.setDriver(mockDriver);
++		mockRide.setRider(mockRider);
++		mockRide.setStartTime(formatter.format(LocalDateTime.of(2018, 9, 12, 12, 0, 0)));
++		mockRide.setEndTime(formatter.format(LocalDateTime.of(2018, 9, 12, 14, 30, 0)));
++		mockRide.setDistance(50L);
++	}
++
++	@Test
++	public void findExistingRideById() {
++		when(mockRepoRide.findById(3L)).thenReturn(Optional.of(mockRide));
++		Ride ride = service.findById(3L);
++		assertNotNull(ride);
++	}
++	
++	@Test
++	public void findInexistingRideById() {
++		when(mockRepoRide.findById(99L)).thenReturn(null);
++		Ride ride = service.findById(99L);
++		assertNull(ride);
++	}
++	
++	@Test
++	public void saveRide() {
++		when(mockRepoRide.save(Mockito.any(Ride.class))).thenReturn(mockRide);
++		Ride ride = service.save(mockRide);
++		assertEquals("John", ride.getDriver().getName());
++	}
++	
++	@Test
++	public void getTopDriversWithSharingRides() {
++		List<Person> drivers = new ArrayList<>();
++		List<TopDriverDTO> topDrivers = new ArrayList<>();
++		for (int i = 0; i < 5; i++) {
++			Person driver = new Person();
++			driver.setId(Long.valueOf(i));
++			driver.setName(generateString(5));
++			drivers.add(driver);
++			TopDriverDTO topDriver = new TopDriverDTO();
++			topDriver.setName(driver.getName());
++			topDriver.setTotalRideDurationInSeconds(Long.valueOf(2*2*60*60));
++			topDriver.setMaxRideDurationInSecods(Long.valueOf(2*60*60));
++			topDriver.setAverageDistance(0d);
++			topDrivers.add(topDriver);
++		}
++		
++		List<Ride> rides = new ArrayList<>();
++		Random random = new Random();
++				
++		for (int i = 0; i < 10; i++) {
++			Ride ride = new Ride();
++			ride.setId(Long.valueOf(i));
++			ride.setDriver(drivers.get(i / 2));
++			ride.setDistance(random.nextLong());
++			topDrivers.get(i / 2).setAverageDistance(
++					topDrivers.get(i / 2).getAverageDistance() + 
++					ride.getDistance() / 2);
++			ride.setStartTime(formatter.format(LocalDateTime.of(2018, 9, 12, i, 0, 0)));
++			ride.setEndTime(formatter.format(LocalDateTime.of(2018, 9, 12, i+2, 0, 0)));
++			rides.add(ride);
++		}
++		when(mockRepoRide.findAll()).thenReturn(rides);
++		when(mockRepoPerson.findAll()).thenReturn(drivers);
++		
++		List<TopDriverDTO> result = service.getTopDrivers(5L,
++				LocalDateTime.of(2018, 8, 1, 0, 0, 0),
++				LocalDateTime.of(2019, 8, 1, 0, 0, 0));
++		assertEquals(topDrivers.size(), result.size());
++		assertEquals(topDrivers.get(0).getMaxRideDurationInSecods(),
++				result.get(0).getMaxRideDurationInSecods());
++	}
++	
++	@Test
++	public void getTopDriversAllRidesUnique() {
++		List<Person> drivers = new ArrayList<>();
++		for (int i = 0; i < 5; i++) {
++			Person driver = new Person();
++			driver.setId(Long.valueOf(i));
++			driver.setName(generateString(5));
++			drivers.add(driver);
++		}
++		
++		List<Ride> rides = new ArrayList<>();
++		Random random = new Random();
++		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
++				
++		for (int i = 0; i < 10; i++) {
++			Ride ride = new Ride();
++			ride.setId(Long.valueOf(i));
++			ride.setDriver(drivers.get(i / 2));
++			ride.setDistance(random.nextLong());
++			ride.setStartTime(formatter.format(LocalDateTime.of(2018, 9, 12, i, 0, 0)));
++			ride.setEndTime(formatter.format(LocalDateTime.of(2018, 9, 12, i, 30, 0)));
++			rides.add(ride);
++		}
++		when(mockRepoRide.findAll()).thenReturn(rides);
++		when(mockRepoPerson.findAll()).thenReturn(drivers);
++		
++		List<TopDriverDTO> result = service.getTopDrivers(5L,
++				LocalDateTime.of(2018, 8, 1, 0, 0, 0),
++				LocalDateTime.of(2019, 8, 1, 0, 0, 0));
++		assertEquals(0, result.size());
++	}
++	
++	private String generateString(int len) {
++		int leftLimit = 97; // letter 'a'
++	    int rightLimit = 122; // letter 'z'
++	    Random random = new Random();
++	    StringBuilder buffer = new StringBuilder(len);
++	    for (int i = 0; i < len; i++) {
++	        int randomLimitedInt = leftLimit + (int) 
++	          (random.nextFloat() * (rightLimit - leftLimit + 1));
++	        buffer.append((char) randomLimitedInt);
++	    }
++	    return buffer.toString();
++	}
++}
+-- 
+2.18.0.windows.1
+
